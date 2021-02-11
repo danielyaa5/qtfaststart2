@@ -239,9 +239,9 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         offset += moov_atom.size
     elif free_size == 0:
         # No free atoms to process and moov is correct, we are done!
-        msg = "This file appears to already be setup!"
-        log.error(msg)
-        raise FastStartSetupError(msg)
+        msg = "This file appears to be already optimised for streaming. Nothing to do."
+        log.info(msg)
+        return
 
     # Check for compressed moov atom
     is_compressed = _moov_is_compressed(datastream, moov_atom)
