@@ -2,6 +2,9 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## 2.1.1
+- Readme updates, skipped a few versions here because of an accidental mess-up with PyPi publishing
+
 ## 2.0.3
 - Fix import errors by renaming everything from qtfaststart to qtfaststart2
 

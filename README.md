@@ -21,11 +21,17 @@ user-friendly, and to use less actual lines of code doing so.
 * Handles any file where the mdat atom is before the moov atom
 * Preserves the order of other atoms
 * Can replace the original file (if given no output file)
-  Installing from source
-----------------------
+  
+## Installing from PyPi
+
+To install from PyPi, you may use ``pip``:
+
+    pip install qtfaststart2
+
+## Installing from source
 
 Download a copy of the source, ``cd`` into the top-level
-``qtfaststart2`` directory, and run::
+``qtfaststart2`` directory, and run:
 
     python setup.py install
 
