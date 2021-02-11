@@ -1,8 +1,9 @@
 .idea
-build
+build/
 dist
 *.pyc
 *~
 *.tmp
 *.swp
 MANIFEST
+qtfaststart2.egg-info

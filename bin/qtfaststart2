@@ -4,7 +4,7 @@
     Command line script for convenience. If this is in your path, you should
     be able to run it directly like this::
 
-        qtfaststart
+        qtfaststart2
 """
 
 import sys
