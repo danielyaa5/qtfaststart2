@@ -13,5 +13,5 @@ import os
 # Add parent directory to sys.path so that running from dev environment works
 sys.path.append(os.path.dirname(os.path.dirname((os.path.abspath(__file__)))))
 
-from qtfaststart import command
+from qtfaststart2 import command
 command.run()

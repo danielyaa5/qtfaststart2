@@ -8,11 +8,11 @@ import sys
 import tempfile
 
 from optparse import OptionParser
-from qtfaststart import VERSION
-from qtfaststart import processor
-from qtfaststart.exceptions import FastStartException
+from qtfaststart2 import VERSION
+from qtfaststart2 import processor
+from qtfaststart2.exceptions import FastStartException
 
-log = logging.getLogger("qtfaststart")
+log = logging.getLogger("qtfaststart2")
 
 def run():
     logging.basicConfig(level = logging.INFO, stream = sys.stdout,

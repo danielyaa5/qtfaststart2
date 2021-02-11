@@ -1,6 +1,6 @@
 """
     The guts that actually do the work. This is available here for the
-    'qtfaststart' script and for your application's direct use.
+    'qtfaststart2' script and for your application's direct use.
 """
 
 import shutil
@@ -11,17 +11,17 @@ import collections
 
 import io
 
-from qtfaststart.exceptions import FastStartSetupError
-from qtfaststart.exceptions import MalformedFileError
-from qtfaststart.exceptions import UnsupportedFormatError
+from qtfaststart2.exceptions import FastStartSetupError
+from qtfaststart2.exceptions import MalformedFileError
+from qtfaststart2.exceptions import UnsupportedFormatError
 
 # This exception isn't directly used, included it for backward compatability
 # in the event someone had used it from our namespace previously
-from qtfaststart.exceptions import FastStartException
+from qtfaststart2.exceptions import FastStartException
 
 CHUNK_SIZE = 8192
 
-log = logging.getLogger("qtfaststart")
+log = logging.getLogger("qtfaststart2")
 
 # Older versions of Python require this to be defined
 if not hasattr(os, 'SEEK_CUR'):
