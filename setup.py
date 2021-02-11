@@ -12,7 +12,7 @@ setup_params = dict(
     version=qtfaststart2.VERSION,
     description='Quicktime atom positioning in Python for fast streaming.',
     url='https://github.com/danielyaa5/qtfaststart2',
-    download_url = 'https://github.com/danielyaa5/qtfaststart2/archive/2.0.0.tar.gz',
+    download_url = 'https://github.com/danielyaa5/qtfaststart2/archive/{version}.tar.gz'.format(version=qtfaststart2.VERSION),
     license='MIT License',
     platforms=["any"],
     provides=['qtfaststart2'],

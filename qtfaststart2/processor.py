@@ -161,20 +161,20 @@ def _moov_is_compressed(datastream, moov_atom):
     """
     # seek to the beginning of the moov atom contents
     datastream.seek(moov_atom.position+8)
-    
+
     # step through the moov atom childeren to see if a cmov atom is among them
     stop = moov_atom.position + moov_atom.size
     while datastream.tell() < stop:
         child_atom = _read_atom_ex(datastream)
         datastream.seek(datastream.tell()+child_atom.size - 8)
-        
+
         # cmov means compressed moov header!
         if child_atom.name == 'cmov':
             return True
-    
+
     return False
 
-def process(infilename, outfilename, limit=float('inf'), to_end=False, 
+def process(infilename, outfilename, limit=float('inf'), to_end=False,
         cleanup=True):
     """
         Convert a Quicktime/MP4 file for streaming by moving the metadata to
@@ -193,8 +193,23 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
     # Get the top level atom index
     index = get_index(datastream)
 
-    mdat_pos = 999999
+    mdat_pos_first = -1
+    mdat_pos_last  = -1
     free_size = 0
+
+    # Get position of first and last mdat atom(s)
+    for atom in index:
+        if atom.name == "mdat":
+            if (atom.position < mdat_pos_first or mdat_pos_first < 0):
+                mdat_pos_first = atom.position
+            if (atom.position > mdat_pos_last or mdat_pos_last < 0):
+                mdat_pos_last = atom.position
+
+    if mdat_pos_first < 0:
+        # No mdat atom found
+        msg = "No mdat atom found."
+        log.error(msg)
+        raise FastStartSetupError(msg)
 
     # Make sure moov occurs AFTER mdat, otherwise no need to run!
     for atom in index:
@@ -202,14 +217,12 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         if atom.name == "moov":
             moov_atom = atom
             moov_pos = atom.position
-        elif atom.name == "mdat":
-            mdat_pos = atom.position
-        elif atom.name == "free" and atom.position < mdat_pos and cleanup:
+        elif atom.name == "free" and atom.position < mdat_pos_first and cleanup:
             # This free atom is before the mdat!
             free_size += atom.size
             log.info("Removing free atom at %d (%d bytes)" %
                     (atom.position, atom.size))
-        elif (atom.name == "\x00\x00\x00\x00" and atom.position < mdat_pos):
+        elif (atom.name == "\x00\x00\x00\x00" and atom.position < mdat_pos_first):
             # This is some strange zero atom with incorrect size
             free_size += 8
             log.info("Removing strange zero atom at %s (8 bytes)" %
@@ -217,16 +230,14 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
 
     # Offset to shift positions
     offset = - free_size
-    if moov_pos < mdat_pos:
-        if to_end:
-            # moov is in the wrong place, shift by moov size
-            offset -= moov_atom.size
-    else:
-        if not to_end:
-            # moov is in the wrong place, shift by moov size
-            offset += moov_atom.size
-
-    if offset == 0:
+    is_setup = False
+    if (moov_pos < mdat_pos_last and to_end):
+        # moov is in the wrong place, shift by moov size
+        offset -= moov_atom.size
+    elif (moov_pos > mdat_pos_first and not to_end):
+        # moov is in the wrong place, shift by moov size
+        offset += moov_atom.size
+    elif free_size == 0:
         # No free atoms to process and moov is correct, we are done!
         msg = "This file appears to already be setup!"
         log.error(msg)
@@ -251,7 +262,7 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
             log.debug("Writing ftyp... (%d bytes)" % atom.size)
             datastream.seek(atom.position)
             outfile.write(datastream.read(atom.size))
- 
+
     if not to_end:
         _write_moov(moov, outfile)
 
@@ -259,7 +270,7 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
     skip_atom_types = ["ftyp", "moov"]
     if cleanup:
         skip_atom_types += ["free"]
-    
+
     atoms = [item for item in index if item.name not in skip_atom_types]
     for atom in atoms:
         log.debug("Writing %s... (%d bytes)" % (atom.name, atom.size))
