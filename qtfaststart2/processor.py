@@ -241,7 +241,7 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         # No free atoms to process and moov is correct, we are done!
         msg = "This file appears to be already optimised for streaming. Nothing to do."
         log.info(msg)
-        return
+        raise FastStartException(msg)
 
     # Check for compressed moov atom
     is_compressed = _moov_is_compressed(datastream, moov_atom)
