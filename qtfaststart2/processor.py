@@ -3,6 +3,7 @@
     'qtfaststart2' script and for your application's direct use.
 """
 
+import bisect
 import shutil
 import logging
 import os
@@ -36,7 +37,8 @@ def read_atom(datastream):
         like "ftyp" or "moov".
     """
     size, type = struct.unpack(">L4s", datastream.read(8))
-    type = type.decode('ascii')
+    # latin-1 maps every byte, so odd names like "\xa9nam" can't raise
+    type = type.decode('latin-1')
     return size, type
 
 
@@ -77,24 +79,37 @@ def _read_atoms(datastream):
     """
     Read atoms until an error occurs
     """
-    while datastream:
+    datastream.seek(0, os.SEEK_END)
+    eof = datastream.tell()
+    datastream.seek(0)
+
+    while True:
         try:
             atom = _read_atom_ex(datastream)
             log.debug("%s: %s" % (atom.name, atom.size))
-        except:
+        except Exception:
+            break
+
+        if atom.size == 0:
+            if atom.name == "\x00\x00\x00\x00":
+                # Strange zero atom with no size. Treat it as 8 bytes of junk
+                # and keep looking for more atoms after it.
+                yield atom._replace(size=8)
+                continue
+
+            # A size of zero means the atom runs to the end of the file (this
+            # is common for a final mdat). Record its real size so it gets
+            # copied, then stop as no more entries will be found!
+            yield atom._replace(size=eof - atom.position)
+            break
+
+        if atom.size < 8:
+            # Can't be a real atom, we're reading garbage
+            log.warning("Invalid %r atom size %d at %d, ignoring the rest "
+                        "of the file" % (atom.name, atom.size, atom.position))
             break
 
         yield atom
-
-        if atom.size == 0:
-            if atom.name == "mdat":
-                # Some files may end in mdat with no size set, which generally
-                # means to seek to the end of the file. We can just stop indexing
-                # as no more entries will be found!
-                break
-            else:
-                # Weird, but just continue to try to find more atoms
-                continue
 
         datastream.seek(atom.position + atom.size)
 
@@ -109,7 +124,7 @@ def _ensure_valid_index(index):
     for key in ["moov", "mdat"]:
         if key not in top_level_atoms:
             msg = "%s atom not found, is this a valid MOV/MP4 file?" % key
-            log.warn(msg)
+            log.warning(msg)
             raise MalformedFileError(msg)
 
 
@@ -139,9 +154,15 @@ def _find_atoms_ex(parent_atom, datastream):
     while datastream.tell() < stop:
         try:
             atom = _read_atom_ex(datastream)
-        except:
+        except Exception:
             msg = "Error reading next atom!"
             log.exception(msg)
+            raise MalformedFileError(msg)
+
+        if atom.size < 8:
+            msg = "Invalid %r atom size %d at %d" % (
+                atom.name, atom.size, atom.position)
+            log.error(msg)
             raise MalformedFileError(msg)
 
         if atom.name in ["trak", "mdia", "minf", "stbl"]:
@@ -165,8 +186,20 @@ def _moov_is_compressed(datastream, moov_atom):
     # step through the moov atom childeren to see if a cmov atom is among them
     stop = moov_atom.position + moov_atom.size
     while datastream.tell() < stop:
-        child_atom = _read_atom_ex(datastream)
-        datastream.seek(datastream.tell()+child_atom.size - 8)
+        try:
+            child_atom = _read_atom_ex(datastream)
+        except Exception:
+            msg = "Error reading moov atom children!"
+            log.exception(msg)
+            raise MalformedFileError(msg)
+
+        if child_atom.size < 8:
+            msg = "Invalid %r atom size %d at %d" % (
+                child_atom.name, child_atom.size, child_atom.position)
+            log.error(msg)
+            raise MalformedFileError(msg)
+
+        datastream.seek(child_atom.position + child_atom.size)
 
         # cmov means compressed moov header!
         if child_atom.name == 'cmov':
@@ -180,6 +213,9 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         Convert a Quicktime/MP4 file for streaming by moving the metadata to
         the front of the file. This method writes a new file.
 
+        Returns True if outfilename was written, or False if the file was
+        already optimised for streaming, in which case nothing is written.
+
         If limit is set to something other than zero it will be used as the
         number of bytes to write of the atoms following the moov atom. This
         is very useful to create a small sample of a file with full headers,
@@ -188,60 +224,56 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         If cleanup is set to False, free atoms and zero atoms will not be
         scrubbed from from the mov
     """
-    datastream = open(infilename, "rb")
-
-    # Get the top level atom index
-    index = get_index(datastream)
-
-    mdat_pos_first = -1
-    mdat_pos_last  = -1
-    free_size = 0
-
-    # Get position of first and last mdat atom(s)
-    for atom in index:
-        if atom.name == "mdat":
-            if (atom.position < mdat_pos_first or mdat_pos_first < 0):
-                mdat_pos_first = atom.position
-            if (atom.position > mdat_pos_last or mdat_pos_last < 0):
-                mdat_pos_last = atom.position
-
-    if mdat_pos_first < 0:
-        # No mdat atom found
-        msg = "No mdat atom found."
+    if os.path.exists(outfilename) and os.path.samefile(infilename,
+                                                        outfilename):
+        # Opening the output would truncate the input before it is read
+        msg = "Input and output are the same file. Leave out the output " \
+              "filename to replace the input file."
         log.error(msg)
         raise FastStartSetupError(msg)
 
-    # Make sure moov occurs AFTER mdat, otherwise no need to run!
-    for atom in index:
-        # The atoms are guaranteed to exist from get_index above!
-        if atom.name == "moov":
-            moov_atom = atom
-            moov_pos = atom.position
-        elif atom.name == "free" and atom.position < mdat_pos_first and cleanup:
-            # This free atom is before the mdat!
-            free_size += atom.size
-            log.info("Removing free atom at %d (%d bytes)" %
-                    (atom.position, atom.size))
-        elif (atom.name == "\x00\x00\x00\x00" and atom.position < mdat_pos_first):
-            # This is some strange zero atom with incorrect size
-            free_size += 8
-            log.info("Removing strange zero atom at %s (8 bytes)" %
-                    atom.position)
+    with open(infilename, "rb") as datastream:
+        return _process(datastream, infilename, outfilename, limit, to_end,
+                        cleanup)
 
-    # Offset to shift positions
-    offset = - free_size
-    is_setup = False
-    if (moov_pos < mdat_pos_last and to_end):
-        # moov is in the wrong place, shift by moov size
-        offset -= moov_atom.size
-    elif (moov_pos > mdat_pos_first and not to_end):
-        # moov is in the wrong place, shift by moov size
-        offset += moov_atom.size
-    elif free_size == 0:
+
+def _process(datastream, infilename, outfilename, limit, to_end, cleanup):
+    # Get the top level atom index
+    index = get_index(datastream)
+
+    mdat_atoms = [atom for atom in index if atom.name == "mdat"]
+    mdat_pos_first = mdat_atoms[0].position
+    mdat_pos_last = mdat_atoms[-1].position
+
+    # The atoms are guaranteed to exist from get_index above!
+    moov_atom = [atom for atom in index if atom.name == "moov"][-1]
+
+    # Atoms left out of the output
+    dropped = []
+    for atom in index:
+        if atom.name == "free" and cleanup:
+            dropped.append(atom)
+        elif atom.name == "\x00\x00\x00\x00":
+            # This is some strange zero atom with incorrect size
+            dropped.append(atom)
+
+    for atom in dropped:
+        if atom.position < mdat_pos_first:
+            log.info("Removing %s atom at %d (%d bytes)" % (
+                "free" if atom.name == "free" else "strange zero",
+                atom.position, atom.size))
+
+    if to_end:
+        moov_misplaced = moov_atom.position < mdat_pos_last
+    else:
+        moov_misplaced = moov_atom.position > mdat_pos_first
+
+    if not moov_misplaced and not any(atom.position < mdat_pos_first
+                                      for atom in dropped):
         # No free atoms to process and moov is correct, we are done!
         msg = "This file appears to be already optimised for streaming. Nothing to do."
         log.info(msg)
-        return
+        return False
 
     # Check for compressed moov atom
     is_compressed = _moov_is_compressed(datastream, moov_atom)
@@ -250,48 +282,83 @@ def process(infilename, outfilename, limit=float('inf'), to_end=False,
         log.error(msg)
         raise UnsupportedFormatError(msg)
 
+    # Work out the output layout: ftyp, moov, then everything else in order
+    # (or moov last when moving it to the end)
+    ftyp_atoms = [atom for atom in index if atom.name == "ftyp"]
+    rest = [atom for atom in index
+            if atom.name not in ("ftyp", "moov") and atom not in dropped]
+    if to_end:
+        layout = ftyp_atoms + rest + [moov_atom]
+    else:
+        layout = ftyp_atoms + [moov_atom] + rest
+
+    # Each chunk offset moves by however far its enclosing atom moved
+    moved = []
+    new_pos = 0
+    for atom in layout:
+        moved.append((atom.position, new_pos - atom.position))
+        new_pos += atom.size
+    moved.sort()
+
     # read and fix moov
-    moov = _patch_moov(datastream, moov_atom, offset)
+    moov = _patch_moov(datastream, moov_atom, moved)
 
     log.info("Writing output...")
-    outfile = open(outfilename, "wb")
+    try:
+        with open(outfilename, "wb") as outfile:
+            for i, atom in enumerate(layout):
+                if atom is moov_atom:
+                    _write_moov(moov, outfile)
+                    continue
 
-    # Write ftype
-    for atom in index:
-        if atom.name == "ftyp":
-            log.debug("Writing ftyp... (%d bytes)" % atom.size)
-            datastream.seek(atom.position)
-            outfile.write(datastream.read(atom.size))
+                log.debug("Writing %s... (%d bytes)" % (atom.name, atom.size))
+                datastream.seek(atom.position)
 
-    if not to_end:
-        _write_moov(moov, outfile)
+                if i < len(layout) - 1 and _has_zero_size(datastream, atom):
+                    # This atom ran to the end of the file, but no longer
+                    # does, so give it a real size
+                    _write_real_size(datastream, atom, outfile)
 
-    # Write the rest
-    skip_atom_types = ["ftyp", "moov"]
-    if cleanup:
-        skip_atom_types += ["free"]
+                # for compatability, allow '0' to mean no limit
+                cur_limit = limit or float('inf')
+                if atom.name == "ftyp":
+                    cur_limit = float('inf')
+                cur_limit = min(cur_limit, atom.size - (
+                    datastream.tell() - atom.position))
 
-    atoms = [item for item in index if item.name not in skip_atom_types]
-    for atom in atoms:
-        log.debug("Writing %s... (%d bytes)" % (atom.name, atom.size))
-        datastream.seek(atom.position)
+                for chunk in get_chunks(datastream, CHUNK_SIZE, cur_limit):
+                    outfile.write(chunk)
+    except BaseException:
+        # Don't leave a half written file behind
+        try:
+            os.remove(outfilename)
+        except OSError:
+            pass
+        raise
 
-        # for compatability, allow '0' to mean no limit
-        cur_limit = limit or float('inf')
-        cur_limit = min(cur_limit, atom.size)
-
-        for chunk in get_chunks(datastream, CHUNK_SIZE, cur_limit):
-            outfile.write(chunk)
-
-    if to_end:
-        _write_moov(moov, outfile)
-
-    # Close and set permissions
-    outfile.close()
+    # Set permissions
     try:
         shutil.copymode(infilename, outfilename)
-    except:
-        log.warn("Could not copy file permissions!")
+    except Exception:
+        log.warning("Could not copy file permissions!")
+
+    return True
+
+def _has_zero_size(datastream, atom):
+    datastream.seek(atom.position)
+    size, = struct.unpack(">L", datastream.read(4))
+    datastream.seek(atom.position)
+    return size == 0
+
+def _write_real_size(datastream, atom, outfile):
+    if atom.size > 0xFFFFFFFF:
+        msg = "Can't move the moov atom after a %s atom over 4 GiB " \
+              "with no size set" % atom.name
+        log.error(msg)
+        raise UnsupportedFormatError(msg)
+
+    outfile.write(struct.pack(">L", atom.size))
+    datastream.seek(atom.position + 4)
 
 def _write_moov(moov, outfile):
     # Write moov
@@ -299,12 +366,24 @@ def _write_moov(moov, outfile):
     log.debug("Writing moov... (%d bytes)" % len(bytes))
     outfile.write(bytes)
 
-def _patch_moov(datastream, atom, offset):
+def _patch_moov(datastream, atom, moved):
+    """
+        Read the moov atom and fix every chunk offset in it. moved is a
+        sorted list of (old atom position, distance moved) for every atom
+        in the output.
+    """
     datastream.seek(atom.position)
     moov = io.BytesIO(datastream.read(atom.size))
 
     # reload the atom from the fixed stream
     atom = _read_atom_ex(moov)
+
+    starts = [position for position, _ in moved]
+
+    def new_offset(entry):
+        # Find the atom the chunk lives in
+        i = max(bisect.bisect_right(starts, entry) - 1, 0)
+        return entry + moved[i][1]
 
     for atom in _find_atoms_ex(atom, moov):
         # Read either 32-bit or 64-bit offsets
@@ -326,7 +405,13 @@ def _patch_moov(datastream, atom, offset):
         entries = struct.unpack(struct_fmt, moov.read(csize * entry_count))
 
         # Patch and write entries
-        offset_entries = [entry + offset for entry in entries]
+        offset_entries = [new_offset(entry) for entry in entries]
+        if atom.name == "stco" and offset_entries and \
+                max(offset_entries) > 0xFFFFFFFF:
+            msg = "Chunk offsets would go past 4 GiB, which needs a co64 " \
+                  "atom instead of stco. This is not supported yet."
+            log.error(msg)
+            raise UnsupportedFormatError(msg)
         moov.seek(entries_pos)
         moov.write(struct.pack(struct_fmt, *offset_entries))
     return moov

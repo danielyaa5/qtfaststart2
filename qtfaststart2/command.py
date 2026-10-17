@@ -44,7 +44,8 @@ def run():
         logging.getLogger().setLevel(logging.DEBUG)
 
     if options.list:
-        index = processor.get_index(open(args[0], "rb"))
+        with open(args[0], "rb") as datastream:
+            index = processor.get_index(datastream)
 
         for atom, pos, size in index:
             if atom == "\x00\x00\x00\x00":
@@ -62,7 +63,12 @@ def run():
             print("Please pass an output filename when used with --sample!")
             raise SystemExit(1)
 
-        tmp, outfile = tempfile.mkstemp()
+        # Write next to the original so the final move is a rename on the
+        # same disk
+        infile = os.path.abspath(args[0])
+        tmp, outfile = tempfile.mkstemp(dir=os.path.dirname(infile),
+                                        prefix="." + os.path.basename(infile),
+                                        suffix=".tmp")
         os.close(tmp)
     else:
         outfile = args[1]
@@ -73,11 +79,33 @@ def run():
         limit = 4 * (1024 ** 2)
 
     try:
-        processor.process(args[0], outfile, limit = limit, to_end = options.to_end)
+        written = processor.process(args[0], outfile, limit = limit,
+                                    to_end = options.to_end)
     except FastStartException:
         # A log message was printed, so exit with an error code
+        _remove_temp(args, outfile)
         raise SystemExit(1)
+    except BaseException:
+        _remove_temp(args, outfile)
+        raise
 
     if len(args) == 1:
-        # Move temp file to replace original
-        shutil.move(outfile, args[0])
+        if written:
+            # Move temp file to replace original
+            _replace(outfile, args[0])
+        else:
+            # Nothing was written, so keep the original as it is
+            _remove_temp(args, outfile)
+
+
+def _remove_temp(args, outfile):
+    if len(args) == 1 and os.path.exists(outfile):
+        os.remove(outfile)
+
+
+def _replace(src, dst):
+    try:
+        os.replace(src, dst)
+    except AttributeError:
+        # Python 2
+        shutil.move(src, dst)

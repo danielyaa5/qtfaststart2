@@ -6,7 +6,8 @@ class FastStartException(Exception):
 
 class FastStartSetupError(FastStartException):
     """
-    Rasised when asked to process a file that does not need processing
+    Raised when processing can't be set up, for example when the input
+    and output are the same file
     """
     pass
 

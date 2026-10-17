@@ -2,6 +2,19 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## Unreleased
+- Fix: running on an already optimised file with no output filename replaced the file with an empty one.
+  See https://github.com/danielyaa5/qtfaststart2/pull/1
+- Fix: passing the same file as input and output destroyed it. This is now an error.
+- Fix: an mdat atom with size 0 (running to the end of the file) was written out as nothing.
+- Fix: chunk offsets were wrong when the moov or a free atom sat between two mdat atoms.
+- Fail with a clear error instead of crashing when moving moov would push stco offsets past 4 GiB.
+- Invalid atom sizes now raise MalformedFileError instead of looping forever.
+- `process()` now returns True when it wrote a file and False when the file was already optimised.
+- Replacing a file in place now writes the temporary file next to it, and never leaves it behind.
+- Files are closed properly, and `log.warn` is replaced by `log.warning`.
+- Add tests: `python -m unittest discover tests`
+
 ## 2.1.1
 - Readme updates, skipped a few versions here because of an accidental mess-up with PyPi publishing
 
