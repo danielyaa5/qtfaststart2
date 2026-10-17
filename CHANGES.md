@@ -2,7 +2,7 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
-## Unreleased
+## 2.2.0
 - Fix: running on an already optimised file with no output filename replaced the file with an empty one.
   See https://github.com/danielyaa5/qtfaststart2/pull/1
 - Fix: passing the same file as input and output destroyed it. This is now an error.
@@ -14,6 +14,10 @@ This project adheres to [Semantic Versioning](http://semver.org/).
 - Replacing a file in place now writes the temporary file next to it, and never leaves it behind.
 - Files are closed properly, and `log.warn` is replaced by `log.warning`.
 - Add tests: `python -m unittest discover tests`
+- The `qtfaststart2` command is now a console script entry point, so it works on Windows too.
+- Requires Python 3.7 or newer. Python 2 users stay on 2.1.1.
+- Rewrote the README, with the full option list and the Python API.
+- Releases are published to PyPI from GitHub Actions.
 
 ## 2.1.1
 - Readme updates, skipped a few versions here because of an accidental mess-up with PyPi publishing
