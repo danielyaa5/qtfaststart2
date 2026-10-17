@@ -56,3 +56,9 @@ If on Windows, the qtfaststart2 script will not execute, so use::
 
     > python -m qtfaststart2 ...
 
+## Running the tests
+
+    $ python -m unittest discover tests
+
+The ffmpeg test is skipped if ``ffmpeg`` isn't installed.
+
