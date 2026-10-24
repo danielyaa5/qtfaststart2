@@ -1,10 +1,13 @@
-# Quicktime/MP4 Fast Start
+# qtfaststart2: QuickTime/MP4 fast start in Python
+
+qtfaststart2 moves the `moov` atom, the index of an MP4 or QuickTime (.mov)
+file, to the front of the file. A video can then start playing in a browser
+before it has finished downloading, which streaming and pseudo-streaming
+need. It is a pure Python version of ffmpeg's `qt-faststart`, installed with
+`pip install qtfaststart2`.
+
 Forked from [qtfaststart](https://github.com/danielgtaylor/qtfaststart) which 
 has had no maintainer for many years.
-
-
-Enable streaming and pseudo-streaming of Quicktime and MP4 files by
-moving metadata and offset information to the front of the file.
 
 This program is based on qt-faststart.c from the ffmpeg project, which is
 released into the public domain, as well as ISO 14496-12:2005 (the official
