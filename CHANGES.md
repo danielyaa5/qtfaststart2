@@ -2,7 +2,8 @@
 All notable changes to this project will be documented in this file.
 This project adheres to [Semantic Versioning](http://semver.org/).
 
-## Unreleased
+## 2.2.0
+- PyPI now shows the README as the project description, with keywords and project links.
 - Fix: running on an already optimised file with no output filename replaced the file with an empty one.
   See https://github.com/danielyaa5/qtfaststart2/pull/1
 - Fix: passing the same file as input and output destroyed it. This is now an error.
